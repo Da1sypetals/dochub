@@ -17,45 +17,40 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Add {
-        name: String,
+        skill_name: String,
         path: PathBuf,
     },
     Prune,
     Sanity,
     Cp {
-        name: String,
+        skill_name: String,
         dest: PathBuf,
     },
     Rm {
-        name: String,
+        skill_name: String,
     },
     #[command(visible_alias = "list")]
     Ls {
-        name: Option<String>,
+        skill_name: Option<String>,
     },
-    Skill {
-        #[command(subcommand)]
-        command: SkillCommand,
+    /// Copy hub content into each configured skill-dir under dest (see skill-dir in hub.toml).
+    #[command(name = "use")]
+    Use {
+        skill_name: String,
+        dest: Option<PathBuf>,
     },
-}
-
-#[derive(Debug, Subcommand)]
-enum SkillCommand {
-    Cp { name: String, dest: Option<PathBuf> },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
-        Command::Add { name, path } => commands::add(&name, &path),
+        Command::Add { skill_name, path } => commands::add(&skill_name, &path),
         Command::Prune => commands::prune(),
         Command::Sanity => commands::sanity(),
-        Command::Cp { name, dest } => commands::cp(&name, &dest),
-        Command::Rm { name } => commands::rm(&name),
-        Command::Ls { name } => commands::ls(name.as_deref()),
-        Command::Skill { command } => match command {
-            SkillCommand::Cp { name, dest } => commands::skill_cp(&name, dest.as_deref()),
-        },
+        Command::Cp { skill_name, dest } => commands::cp(&skill_name, &dest),
+        Command::Rm { skill_name } => commands::rm(&skill_name),
+        Command::Ls { skill_name } => commands::ls(skill_name.as_deref()),
+        Command::Use { skill_name, dest } => commands::hub_use(&skill_name, dest.as_deref()),
     };
 
     match result {

@@ -11,13 +11,13 @@ cargo install --path .
 ## Commands
 
 ```bash
-dochub add <name> <path>
+dochub add <skill_name> <path>
 dochub prune
 dochub sanity
-dochub cp <name> <dest>
-dochub skill cp <name> [dest] # dest defaults to .
-dochub rm <name>
-dochub ls [name]
+dochub cp <skill_name> <dest>
+dochub use <skill_name> [dest] # dest defaults to .
+dochub rm <skill_name>
+dochub ls [skill_name]
 ```
 
 ## Config

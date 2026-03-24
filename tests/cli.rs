@@ -116,7 +116,7 @@ fn add_succeeds_and_persists() {
 
 #[test]
 #[serial]
-fn add_rejects_duplicate_name() {
+fn add_rejects_duplicate_skill_name() {
     let _sandbox = TestSandbox::new();
     mkdir("/tmp/.dochub/sources/a");
 
@@ -151,7 +151,7 @@ fn ls_lists_all_and_single_and_missing() {
     let all_stdout = stdout(&all_output);
     let all_lines: Vec<_> = all_stdout.lines().collect();
     assert_eq!(all_lines.len(), 4);
-    assert!(all_lines[0].contains("NAME"));
+    assert!(all_lines[0].contains("SKILL_NAME"));
     assert!(all_lines[0].contains("PATH"));
     assert!(all_lines[0].contains("SIZE"));
     assert!(all_lines[1].contains("---"));
@@ -166,7 +166,7 @@ fn ls_lists_all_and_single_and_missing() {
     let single_stdout = stdout(&single_output);
     let single_lines: Vec<_> = single_stdout.lines().collect();
     assert_eq!(single_lines.len(), 3);
-    assert!(single_lines[0].contains("NAME"));
+    assert!(single_lines[0].contains("SKILL_NAME"));
     assert!(single_lines[0].contains("PATH"));
     assert!(single_lines[0].contains("SIZE"));
     assert!(single_lines[2].contains(&canonical_string("/tmp/.dochub/s1")));
@@ -260,7 +260,7 @@ small = "/tmp/.dochub/small"
 
 #[test]
 #[serial]
-fn cp_creates_dest_name_content_layout_and_reports_destination() {
+fn cp_creates_dest_skill_name_content_layout_and_reports_destination() {
     let _sandbox = TestSandbox::new();
     write_file("/tmp/.dochub/src/hub1/a.txt", b"a");
     write_file("/tmp/.dochub/src/hub1/b/c.txt", b"c");
@@ -337,7 +337,7 @@ fn cp_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
     assert_failure(&output);
     let err = stderr(&output);
     assert!(
-        err.contains("Closest hub name: `hub1`"),
+        err.contains("Closest skill name: `hub1`"),
         "expected fuzzy hint on stderr, got:\n{err}"
     );
     assert!(
@@ -348,7 +348,7 @@ fn cp_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
 
 #[test]
 #[serial]
-fn skill_cp_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
+fn use_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
     let _sandbox = TestSandbox::new();
     write_file("/tmp/.dochub/src/sk/x.txt", b"x");
     write_file(
@@ -359,11 +359,11 @@ sk = "/tmp/.dochub/src/sk"
 "#,
     );
 
-    let output = run(&["skill", "cp", "skx", "/tmp/.dochub/project"]);
+    let output = run(&["use", "skx", "/tmp/.dochub/project"]);
     assert_failure(&output);
     let err = stderr(&output);
     assert!(
-        err.contains("Closest hub name: `sk`"),
+        err.contains("Closest skill name: `sk`"),
         "expected fuzzy hint on stderr, got:\n{err}"
     );
     assert!(
@@ -374,7 +374,7 @@ sk = "/tmp/.dochub/src/sk"
 
 #[test]
 #[serial]
-fn skill_cp_applies_each_skill_dir_and_reports_all_destinations() {
+fn use_applies_each_skill_dir_and_reports_all_destinations() {
     let _sandbox = TestSandbox::new();
     write_file("/tmp/.dochub/src/sk/x.txt", b"x");
     write_file(
@@ -385,7 +385,7 @@ sk = "/tmp/.dochub/src/sk"
 "#,
     );
 
-    let output = run(&["skill", "cp", "sk", "/tmp/.dochub/project"]);
+    let output = run(&["use", "sk", "/tmp/.dochub/project"]);
     assert_success(&output);
 
     assert!(Path::new("/tmp/.dochub/project/.claude/skill/sk/content/x.txt").exists());
@@ -398,7 +398,7 @@ sk = "/tmp/.dochub/src/sk"
     let mut default_dest = cmd();
     let output = default_dest
         .current_dir("/tmp/.dochub/cwd")
-        .args(["skill", "cp", "sk"])
+        .args(["use", "sk"])
         .output()
         .unwrap();
     assert_success(&output);
@@ -408,7 +408,7 @@ sk = "/tmp/.dochub/src/sk"
 
 #[test]
 #[serial]
-fn skill_cp_skill_dir_trailing_slash_equivalent() {
+fn use_skill_dir_trailing_slash_equivalent() {
     let _sandbox = TestSandbox::new();
     write_file("/tmp/.dochub/src/sk/x.txt", b"x");
     write_file(
@@ -419,7 +419,7 @@ sk = "/tmp/.dochub/src/sk"
 "#,
     );
 
-    let first = run(&["skill", "cp", "sk", "/tmp/.dochub/project-a"]);
+    let first = run(&["use", "sk", "/tmp/.dochub/project-a"]);
     assert_success(&first);
 
     write_file(
@@ -430,7 +430,7 @@ sk = "/tmp/.dochub/src/sk"
 "#,
     );
 
-    let second = run(&["skill", "cp", "sk", "/tmp/.dochub/project-b"]);
+    let second = run(&["use", "sk", "/tmp/.dochub/project-b"]);
     assert_success(&second);
 
     assert!(Path::new("/tmp/.dochub/project-a/.claude/skill/sk/content/x.txt").exists());
@@ -439,7 +439,7 @@ sk = "/tmp/.dochub/src/sk"
 
 #[test]
 #[serial]
-fn skill_cp_errors_when_skill_dir_missing_or_empty() {
+fn use_errors_when_skill_dir_missing_or_empty() {
     let _sandbox = TestSandbox::new();
     write_file(
         config_path(),
@@ -449,7 +449,7 @@ sk = "/tmp/.dochub/src/sk"
     );
     mkdir("/tmp/.dochub/src/sk");
 
-    let missing_output = run(&["skill", "cp", "sk", "."]);
+    let missing_output = run(&["use", "sk", "."]);
     assert_failure(&missing_output);
     assert!(stderr(&missing_output).contains("skill-dir"));
 
@@ -461,7 +461,7 @@ sk = "/tmp/.dochub/src/sk"
 "#,
     );
 
-    let empty_output = run(&["skill", "cp", "sk", "."]);
+    let empty_output = run(&["use", "sk", "."]);
     assert_failure(&empty_output);
     assert!(stderr(&empty_output).contains("skill-dir"));
 }

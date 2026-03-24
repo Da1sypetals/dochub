@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 /// hint line (non-TTY).
 const FUZZY_HUB_THRESHOLD: f64 = 0.8;
 
-pub fn add(name: &str, path: &Path) -> Result<(), String> {
+pub fn add(skill_name: &str, path: &Path) -> Result<(), String> {
     if !path.is_dir() {
         return Err(format!("{} is not a directory.", path.display()));
     }
@@ -21,15 +21,15 @@ pub fn add(name: &str, path: &Path) -> Result<(), String> {
         .map_err(|err| format!("Failed to resolve {}: {err}", path.display()))?;
 
     let mut config = config::load()?;
-    if config.hub.contains_key(name) {
-        return Err(format!("Hub entry `{name}` already exists."));
+    if config.hub.contains_key(skill_name) {
+        return Err(format!("Hub entry `{skill_name}` already exists."));
     }
 
     config
         .hub
-        .insert(name.to_string(), canonical.display().to_string());
+        .insert(skill_name.to_string(), canonical.display().to_string());
     config::save(&config)?;
-    println!("{name}\t{}", canonical.display());
+    println!("{skill_name}\t{}", canonical.display());
     Ok(())
 }
 
@@ -37,11 +37,11 @@ pub fn prune() -> Result<(), String> {
     let mut config = config::load()?;
     let mut removed = Vec::new();
 
-    config.hub.retain(|name, path| {
+    config.hub.retain(|skill_name, path| {
         if Path::new(path).exists() {
             true
         } else {
-            removed.push((name.clone(), path.clone()));
+            removed.push((skill_name.clone(), path.clone()));
             false
         }
     });
@@ -52,8 +52,8 @@ pub fn prune() -> Result<(), String> {
     }
 
     config::save(&config)?;
-    for (name, path) in removed {
-        println!("{name}\t{path}");
+    for (skill_name, path) in removed {
+        println!("{skill_name}\t{path}");
     }
     Ok(())
 }
@@ -64,7 +64,7 @@ pub fn sanity() -> Result<(), String> {
     let limit_mb = config.sane_size.unwrap_or(16);
     let mut found = false;
 
-    for (name, path) in &config.hub {
+    for (skill_name, path) in &config.hub {
         let hub_path = Path::new(path);
         if !hub_path.exists() {
             continue;
@@ -74,7 +74,7 @@ pub fn sanity() -> Result<(), String> {
         if size > limit_bytes {
             found = true;
             println!(
-                "{name}\t{}\tsize={}B\tlimit={}MB",
+                "{skill_name}\t{}\tsize={}B\tlimit={}MB",
                 hub_path.display(),
                 size,
                 limit_mb
@@ -92,12 +92,12 @@ pub fn sanity() -> Result<(), String> {
     Ok(())
 }
 
-pub fn cp(name: &str, dest: &Path) -> Result<(), String> {
+pub fn cp(skill_name: &str, dest: &Path) -> Result<(), String> {
     let config = config::load()?;
-    let (resolved_name, source) = resolve_hub_source(&config, name)?;
+    let (resolved_skill_name, source) = resolve_hub_source(&config, skill_name)?;
     let final_root = copy_hub_to(
         &config,
-        &resolved_name,
+        &resolved_skill_name,
         &source,
         &normalize_join_input(dest),
     )?;
@@ -105,9 +105,9 @@ pub fn cp(name: &str, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn skill_cp(name: &str, dest: Option<&Path>) -> Result<(), String> {
+pub fn hub_use(skill_name: &str, dest: Option<&Path>) -> Result<(), String> {
     let config = config::load()?;
-    let (resolved_name, source) = resolve_hub_source(&config, name)?;
+    let (resolved_skill_name, source) = resolve_hub_source(&config, skill_name)?;
 
     if config.skill_dir.is_empty() {
         return Err("`skill-dir` is missing or empty in hub.toml.".to_string());
@@ -126,7 +126,7 @@ pub fn skill_cp(name: &str, dest: Option<&Path>) -> Result<(), String> {
         let normalized_skill_dir = normalize_join_input(skill_dir_path);
         let final_root = copy_hub_to(
             &config,
-            &resolved_name,
+            &resolved_skill_name,
             &source,
             &base_dest.join(normalized_skill_dir),
         )?;
@@ -136,15 +136,15 @@ pub fn skill_cp(name: &str, dest: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn rm(name: &str) -> Result<(), String> {
+pub fn rm(skill_name: &str) -> Result<(), String> {
     let mut config = config::load()?;
     let path = config
         .hub
-        .get(name)
+        .get(skill_name)
         .cloned()
-        .ok_or_else(|| format!("Hub entry `{name}` not found."))?;
+        .ok_or_else(|| format!("Hub entry `{skill_name}` not found."))?;
 
-    print!("Remove `{name}` -> {path}? [y/N]: ");
+    print!("Remove `{skill_name}` -> {path}? [y/N]: ");
     io::stdout()
         .flush()
         .map_err(|err| format!("Failed to flush stdout: {err}"))?;
@@ -160,23 +160,23 @@ pub fn rm(name: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    config.hub.remove(name);
+    config.hub.remove(skill_name);
     config::save(&config)?;
-    println!("Removed `{name}`.");
+    println!("Removed `{skill_name}`.");
     Ok(())
 }
 
-pub fn ls(name: Option<&str>) -> Result<(), String> {
+pub fn ls(skill_name: Option<&str>) -> Result<(), String> {
     let config = config::load()?;
 
-    let rows = match name {
-        Some(name) => {
+    let rows = match skill_name {
+        Some(skill_name) => {
             let path = config
                 .hub
-                .get(name)
-                .ok_or_else(|| format!("Hub entry `{name}` not found."))?;
+                .get(skill_name)
+                .ok_or_else(|| format!("Hub entry `{skill_name}` not found."))?;
             vec![(
-                name.to_string(),
+                skill_name.to_string(),
                 path.clone(),
                 display_size(Path::new(path))?,
             )]
@@ -184,16 +184,22 @@ pub fn ls(name: Option<&str>) -> Result<(), String> {
         None => config
             .hub
             .iter()
-            .map(|(name, path)| Ok((name.clone(), path.clone(), display_size(Path::new(path))?)))
+            .map(|(skill_name, path)| {
+                Ok((
+                    skill_name.clone(),
+                    path.clone(),
+                    display_size(Path::new(path))?,
+                ))
+            })
             .collect::<Result<Vec<_>, String>>()?,
     };
 
-    let name_width = rows
+    let skill_name_width = rows
         .iter()
-        .map(|(name, _, _)| name.len())
+        .map(|(skill_name, _, _)| skill_name.len())
         .max()
         .unwrap_or(0)
-        .max("NAME".len());
+        .max("SKILL_NAME".len());
     let path_width = rows
         .iter()
         .map(|(_, path, _)| path.len())
@@ -208,28 +214,28 @@ pub fn ls(name: Option<&str>) -> Result<(), String> {
         .max("SIZE".len());
 
     println!(
-        "{:<name_width$}  {:<path_width$}  {:>size_width$}",
-        "NAME",
+        "{:<skill_name_width$}  {:<path_width$}  {:>size_width$}",
+        "SKILL_NAME",
         "PATH",
         "SIZE",
-        name_width = name_width,
+        skill_name_width = skill_name_width,
         path_width = path_width,
         size_width = size_width,
     );
     println!(
-        "{:-<name_width$}  {:-<path_width$}  {:-<size_width$}",
+        "{:-<skill_name_width$}  {:-<path_width$}  {:-<size_width$}",
         "",
         "",
         "",
-        name_width = name_width,
+        skill_name_width = skill_name_width,
         path_width = path_width,
         size_width = size_width,
     );
 
-    for (name, path, size) in rows {
+    for (skill_name, path, size) in rows {
         println!(
-            "{name:<name_width$}  {path:<path_width$}  {size:>size_width$}",
-            name_width = name_width,
+            "{skill_name:<skill_name_width$}  {path:<path_width$}  {size:>size_width$}",
+            skill_name_width = skill_name_width,
             path_width = path_width,
             size_width = size_width,
         );
@@ -256,7 +262,7 @@ fn best_hub_fuzzy_match<'a>(config: &'a Config, input: &str) -> Option<(&'a str,
     best
 }
 
-fn read_hub_name_confirm() -> Result<bool, String> {
+fn read_skill_name_confirm() -> Result<bool, String> {
     let mut line = String::new();
     io::stdin()
         .read_line(&mut line)
@@ -265,41 +271,41 @@ fn read_hub_name_confirm() -> Result<bool, String> {
     Ok(t.is_empty() || t == "y" || t == "Y")
 }
 
-fn hub_path_from_entry(name: &str, source: &str) -> Result<(String, PathBuf), String> {
+fn hub_path_from_entry(skill_name: &str, source: &str) -> Result<(String, PathBuf), String> {
     let path = PathBuf::from(source);
     if !path.is_dir() {
         return Err(format!(
-            "Hub entry `{name}` points to a missing directory: {source}"
+            "Hub entry `{skill_name}` points to a missing directory: {source}"
         ));
     }
-    Ok((name.to_string(), path))
+    Ok((skill_name.to_string(), path))
 }
 
-fn resolve_hub_source(config: &Config, name: &str) -> Result<(String, PathBuf), String> {
-    if let Some(path_str) = config.hub.get(name) {
-        return hub_path_from_entry(name, path_str);
+fn resolve_hub_source(config: &Config, skill_name: &str) -> Result<(String, PathBuf), String> {
+    if let Some(path_str) = config.hub.get(skill_name) {
+        return hub_path_from_entry(skill_name, path_str);
     }
 
-    let Some((best_key, score)) = best_hub_fuzzy_match(config, name) else {
-        return Err(format!("Hub entry `{name}` not found."));
+    let Some((best_key, score)) = best_hub_fuzzy_match(config, skill_name) else {
+        return Err(format!("Hub entry `{skill_name}` not found."));
     };
 
     if score < FUZZY_HUB_THRESHOLD {
-        return Err(format!("Hub entry `{name}` not found."));
+        return Err(format!("Hub entry `{skill_name}` not found."));
     }
 
     if !io::stdin().is_terminal() {
-        eprintln!("Closest hub name: `{best_key}` (similarity {score:.3}).");
-        return Err(format!("Hub entry `{name}` not found."));
+        eprintln!("Closest skill name: `{best_key}` (similarity {score:.3}).");
+        return Err(format!("Hub entry `{skill_name}` not found."));
     }
 
-    eprint!("Did you mean `{best_key}` instead of `{name}`? [y/N]: ");
+    eprint!("Did you mean `{best_key}` instead of `{skill_name}`? [y/N]: ");
     io::stderr()
         .flush()
         .map_err(|err| format!("Failed to flush stderr: {err}"))?;
 
-    if !read_hub_name_confirm()? {
-        return Err(format!("Hub entry `{name}` not found."));
+    if !read_skill_name_confirm()? {
+        return Err(format!("Hub entry `{skill_name}` not found."));
     }
 
     let path_str = config
@@ -309,8 +315,13 @@ fn resolve_hub_source(config: &Config, name: &str) -> Result<(String, PathBuf), 
     hub_path_from_entry(best_key, path_str)
 }
 
-fn copy_hub_to(config: &Config, name: &str, source: &Path, dest: &Path) -> Result<PathBuf, String> {
-    let final_root = dest.join(name).join("content");
+fn copy_hub_to(
+    config: &Config,
+    skill_name: &str,
+    source: &Path,
+    dest: &Path,
+) -> Result<PathBuf, String> {
+    let final_root = dest.join(skill_name).join("content");
     let final_root_abs = absolute_path(&final_root)?;
 
     if final_root_abs.starts_with(source) {
