@@ -8,6 +8,7 @@ clap = { version = "4", features = ["derive"] }
 dirs = "6"
 ignore = "0.4"
 serde = { version = "1", features = ["derive"] }
+strsim = "0.11"
 toml = "0.8"
 walkdir = "2"
 

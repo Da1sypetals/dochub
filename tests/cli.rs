@@ -97,10 +97,7 @@ fn read_config() -> String {
 }
 
 fn canonical_string(path: impl AsRef<Path>) -> String {
-    fs::canonicalize(path)
-        .unwrap()
-        .display()
-        .to_string()
+    fs::canonicalize(path).unwrap().display().to_string()
 }
 
 #[test]
@@ -271,7 +268,10 @@ fn cp_creates_dest_name_content_layout_and_reports_destination() {
 
     let output = run(&["cp", "hub1", "/tmp/.dochub/out"]);
     assert_success(&output);
-    assert_eq!(fs::read("/tmp/.dochub/out/hub1/content/a.txt").unwrap(), b"a");
+    assert_eq!(
+        fs::read("/tmp/.dochub/out/hub1/content/a.txt").unwrap(),
+        b"a"
+    );
     assert_eq!(
         fs::read("/tmp/.dochub/out/hub1/content/b/c.txt").unwrap(),
         b"c"
@@ -324,6 +324,52 @@ hub1 = "/tmp/.dochub/src/hub1"
     assert!(!Path::new("/tmp/.dochub/out/hub1/content/subdir/.git").exists());
     assert!(!Path::new("/tmp/.dochub/out/hub1/content/skipme").exists());
     assert!(!Path::new("/tmp/.dochub/out/hub1/content/foo.tmp").exists());
+}
+
+#[test]
+#[serial]
+fn cp_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
+    let _sandbox = TestSandbox::new();
+    write_file("/tmp/.dochub/src/hub1/a.txt", b"a");
+    assert_success(&run(&["add", "hub1", "/tmp/.dochub/src/hub1"]));
+
+    let output = run(&["cp", "hub1x", "/tmp/.dochub/out"]);
+    assert_failure(&output);
+    let err = stderr(&output);
+    assert!(
+        err.contains("Closest hub name: `hub1`"),
+        "expected fuzzy hint on stderr, got:\n{err}"
+    );
+    assert!(
+        err.contains("Hub entry `hub1x` not found."),
+        "expected not-found error on stderr, got:\n{err}"
+    );
+}
+
+#[test]
+#[serial]
+fn skill_cp_non_tty_shows_closest_hint_when_typo_is_near_threshold() {
+    let _sandbox = TestSandbox::new();
+    write_file("/tmp/.dochub/src/sk/x.txt", b"x");
+    write_file(
+        config_path(),
+        br#"skill-dir = [".claude/skill/", ".cursor/skill"]
+[hub]
+sk = "/tmp/.dochub/src/sk"
+"#,
+    );
+
+    let output = run(&["skill", "cp", "skx", "/tmp/.dochub/project"]);
+    assert_failure(&output);
+    let err = stderr(&output);
+    assert!(
+        err.contains("Closest hub name: `sk`"),
+        "expected fuzzy hint on stderr, got:\n{err}"
+    );
+    assert!(
+        err.contains("Hub entry `skx` not found."),
+        "expected not-found error on stderr, got:\n{err}"
+    );
 }
 
 #[test]

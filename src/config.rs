@@ -24,7 +24,8 @@ impl Config {
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Could not resolve the home directory.".to_string())?;
+    let home =
+        dirs::home_dir().ok_or_else(|| "Could not resolve the home directory.".to_string())?;
     Ok(home.join(".dochub").join("hub.toml"))
 }
 
@@ -50,6 +51,7 @@ pub fn save(config: &Config) -> Result<PathBuf, String> {
     let contents =
         toml::to_string(config).map_err(|err| format!("Failed to serialize config: {err}"))?;
 
-    fs::write(&path, contents).map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+    fs::write(&path, contents)
+        .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
     Ok(path)
 }

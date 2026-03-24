@@ -16,13 +16,23 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Add { name: String, path: PathBuf },
+    Add {
+        name: String,
+        path: PathBuf,
+    },
     Prune,
     Sanity,
-    Cp { name: String, dest: PathBuf },
-    Rm { name: String },
+    Cp {
+        name: String,
+        dest: PathBuf,
+    },
+    Rm {
+        name: String,
+    },
     #[command(visible_alias = "list")]
-    Ls { name: Option<String> },
+    Ls {
+        name: Option<String>,
+    },
     Skill {
         #[command(subcommand)]
         command: SkillCommand,

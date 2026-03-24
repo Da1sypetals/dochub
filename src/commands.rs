@@ -3,9 +3,14 @@ use crate::paths::{has_git_component, normalize_join_input};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use strsim::jaro_winkler;
 use walkdir::WalkDir;
+
+/// Minimum Jaro–Winkler similarity to offer a "did you mean" prompt (TTY) or
+/// hint line (non-TTY).
+const FUZZY_HUB_THRESHOLD: f64 = 0.8;
 
 pub fn add(name: &str, path: &Path) -> Result<(), String> {
     if !path.is_dir() {
@@ -78,7 +83,10 @@ pub fn sanity() -> Result<(), String> {
     }
 
     if !found {
-        println!("All entries are within the configured sane size ({}MB).", limit_mb);
+        println!(
+            "All entries are within the configured sane size ({}MB).",
+            limit_mb
+        );
     }
 
     Ok(())
@@ -86,15 +94,20 @@ pub fn sanity() -> Result<(), String> {
 
 pub fn cp(name: &str, dest: &Path) -> Result<(), String> {
     let config = config::load()?;
-    let source = hub_source(&config, name)?;
-    let final_root = copy_hub_to(&config, name, &source, &normalize_join_input(dest))?;
+    let (resolved_name, source) = resolve_hub_source(&config, name)?;
+    let final_root = copy_hub_to(
+        &config,
+        &resolved_name,
+        &source,
+        &normalize_join_input(dest),
+    )?;
     println!("{}", final_root.display());
     Ok(())
 }
 
 pub fn skill_cp(name: &str, dest: Option<&Path>) -> Result<(), String> {
     let config = config::load()?;
-    let source = hub_source(&config, name)?;
+    let (resolved_name, source) = resolve_hub_source(&config, name)?;
 
     if config.skill_dir.is_empty() {
         return Err("`skill-dir` is missing or empty in hub.toml.".to_string());
@@ -113,7 +126,7 @@ pub fn skill_cp(name: &str, dest: Option<&Path>) -> Result<(), String> {
         let normalized_skill_dir = normalize_join_input(skill_dir_path);
         let final_root = copy_hub_to(
             &config,
-            name,
+            &resolved_name,
             &source,
             &base_dest.join(normalized_skill_dir),
         )?;
@@ -162,18 +175,16 @@ pub fn ls(name: Option<&str>) -> Result<(), String> {
                 .hub
                 .get(name)
                 .ok_or_else(|| format!("Hub entry `{name}` not found."))?;
-            vec![(name.to_string(), path.clone(), display_size(Path::new(path))?)]
+            vec![(
+                name.to_string(),
+                path.clone(),
+                display_size(Path::new(path))?,
+            )]
         }
         None => config
             .hub
             .iter()
-            .map(|(name, path)| {
-                Ok((
-                    name.clone(),
-                    path.clone(),
-                    display_size(Path::new(path))?,
-                ))
-            })
+            .map(|(name, path)| Ok((name.clone(), path.clone(), display_size(Path::new(path))?)))
             .collect::<Result<Vec<_>, String>>()?,
     };
 
@@ -227,18 +238,75 @@ pub fn ls(name: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-fn hub_source(config: &Config, name: &str) -> Result<PathBuf, String> {
-    let source = config
-        .hub
-        .get(name)
-        .ok_or_else(|| format!("Hub entry `{name}` not found."))?;
+fn best_hub_fuzzy_match<'a>(config: &'a Config, input: &str) -> Option<(&'a str, f64)> {
+    let mut best: Option<(&str, f64)> = None;
+    for key in config.hub.keys() {
+        let score = jaro_winkler(input, key);
+        best = match best {
+            None => Some((key.as_str(), score)),
+            Some((bk, bs)) => {
+                if score > bs || (score == bs && key.as_str() < bk) {
+                    Some((key.as_str(), score))
+                } else {
+                    Some((bk, bs))
+                }
+            }
+        };
+    }
+    best
+}
 
+fn read_hub_name_confirm() -> Result<bool, String> {
+    let mut line = String::new();
+    io::stdin()
+        .read_line(&mut line)
+        .map_err(|err| format!("Failed to read confirmation: {err}"))?;
+    let t = line.trim();
+    Ok(t.is_empty() || t == "y" || t == "Y")
+}
+
+fn hub_path_from_entry(name: &str, source: &str) -> Result<(String, PathBuf), String> {
     let path = PathBuf::from(source);
     if !path.is_dir() {
-        return Err(format!("Hub entry `{name}` points to a missing directory: {source}"));
+        return Err(format!(
+            "Hub entry `{name}` points to a missing directory: {source}"
+        ));
+    }
+    Ok((name.to_string(), path))
+}
+
+fn resolve_hub_source(config: &Config, name: &str) -> Result<(String, PathBuf), String> {
+    if let Some(path_str) = config.hub.get(name) {
+        return hub_path_from_entry(name, path_str);
     }
 
-    Ok(path)
+    let Some((best_key, score)) = best_hub_fuzzy_match(config, name) else {
+        return Err(format!("Hub entry `{name}` not found."));
+    };
+
+    if score < FUZZY_HUB_THRESHOLD {
+        return Err(format!("Hub entry `{name}` not found."));
+    }
+
+    if !io::stdin().is_terminal() {
+        eprintln!("Closest hub name: `{best_key}` (similarity {score:.3}).");
+        return Err(format!("Hub entry `{name}` not found."));
+    }
+
+    eprint!("Did you mean `{best_key}` instead of `{name}`? [y/N]: ");
+    io::stderr()
+        .flush()
+        .map_err(|err| format!("Failed to flush stderr: {err}"))?;
+
+    if !read_hub_name_confirm()? {
+        return Err(format!("Hub entry `{name}` not found."));
+    }
+
+    let path_str = config
+        .hub
+        .get(best_key)
+        .ok_or_else(|| format!("Hub entry `{best_key}` not found."))?;
+    hub_path_from_entry(best_key, path_str)
 }
 
 fn copy_hub_to(config: &Config, name: &str, source: &Path, dest: &Path) -> Result<PathBuf, String> {
@@ -257,9 +325,12 @@ fn copy_hub_to(config: &Config, name: &str, source: &Path, dest: &Path) -> Resul
     for entry in WalkDir::new(source).min_depth(1) {
         let entry = entry.map_err(|err| format!("Failed to walk {}: {err}", source.display()))?;
         let path = entry.path();
-        let rel = path
-            .strip_prefix(source)
-            .map_err(|err| format!("Failed to compute relative path for {}: {err}", path.display()))?;
+        let rel = path.strip_prefix(source).map_err(|err| {
+            format!(
+                "Failed to compute relative path for {}: {err}",
+                path.display()
+            )
+        })?;
 
         if should_skip(path, rel, entry.file_type().is_dir(), &matcher) {
             continue;
@@ -278,7 +349,11 @@ fn copy_hub_to(config: &Config, name: &str, source: &Path, dest: &Path) -> Resul
                     .map_err(|err| format!("Failed to create {}: {err}", parent.display()))?;
             }
             fs::copy(path, &dest_path).map_err(|err| {
-                format!("Failed to copy {} to {}: {err}", path.display(), dest_path.display())
+                format!(
+                    "Failed to copy {} to {}: {err}",
+                    path.display(),
+                    dest_path.display()
+                )
             })?;
         }
     }
@@ -300,7 +375,10 @@ fn build_ignore_matcher(source: &Path, patterns: &[String]) -> Result<Gitignore,
 }
 
 fn should_skip(path: &Path, rel: &Path, is_dir: bool, matcher: &Gitignore) -> bool {
-    has_git_component(rel) || matcher.matched_path_or_any_parents(path, is_dir).is_ignore()
+    has_git_component(rel)
+        || matcher
+            .matched_path_or_any_parents(path, is_dir)
+            .is_ignore()
 }
 
 fn directory_size(path: &Path) -> Result<u64, String> {
@@ -309,9 +387,12 @@ fn directory_size(path: &Path) -> Result<u64, String> {
     for entry in WalkDir::new(path) {
         let entry = entry.map_err(|err| format!("Failed to walk {}: {err}", path.display()))?;
         if entry.file_type().is_file() {
-            let metadata = entry
-                .metadata()
-                .map_err(|err| format!("Failed to read metadata for {}: {err}", entry.path().display()))?;
+            let metadata = entry.metadata().map_err(|err| {
+                format!(
+                    "Failed to read metadata for {}: {err}",
+                    entry.path().display()
+                )
+            })?;
             total = total.saturating_add(metadata.len());
         }
     }
@@ -352,6 +433,44 @@ fn absolute_path(path: &Path) -> Result<PathBuf, String> {
         return Ok(path.to_path_buf());
     }
 
-    let cwd = env::current_dir().map_err(|err| format!("Failed to resolve current directory: {err}"))?;
+    let cwd =
+        env::current_dir().map_err(|err| format!("Failed to resolve current directory: {err}"))?;
     Ok(cwd.join(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    #[test]
+    fn best_hub_fuzzy_picks_highest_jaro_winkler() {
+        let mut config = Config::default();
+        config.hub.insert("alpha".to_string(), "/tmp/a".to_string());
+        config
+            .hub
+            .insert("alphabet".to_string(), "/tmp/b".to_string());
+
+        let (key, score) = best_hub_fuzzy_match(&config, "alphabe").unwrap();
+        assert_eq!(key, "alphabet");
+        assert!(score > jaro_winkler("alphabe", "alpha"));
+    }
+
+    #[test]
+    fn best_hub_fuzzy_tie_breaks_lexicographically() {
+        let mut config = Config::default();
+        config.hub.insert("b".to_string(), "/tmp/b".to_string());
+        config.hub.insert("a".to_string(), "/tmp/a".to_string());
+
+        let (key, _) = best_hub_fuzzy_match(&config, "x").unwrap();
+        assert_eq!(key, "a");
+    }
+
+    #[test]
+    fn hub1_typo_meets_fuzzy_threshold_for_cp_hint() {
+        assert!(
+            jaro_winkler("hub1x", "hub1") >= FUZZY_HUB_THRESHOLD,
+            "adjust test string if threshold or metric changes"
+        );
+    }
 }

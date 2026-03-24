@@ -207,6 +207,7 @@ dependencies = [
  "ignore",
  "serde",
  "serial_test",
+ "strsim",
  "toml",
  "walkdir",
 ]
